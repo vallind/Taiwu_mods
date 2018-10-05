@@ -22,8 +22,13 @@ namespace HappyLife
         public int numBuild = 0;
         public int numFavor = 0;
         public bool skip = true;
+        public bool unBuildLimit = true;
+        public bool unlockAll = true;
+
 
     }
+
+
 
     public static class Main
     {
@@ -57,6 +62,8 @@ namespace HappyLife
         {
             GUILayout.BeginVertical("Box", new GUILayoutOption[0]);
             Main.settings.skip = GUILayout.Toggle(Main.settings.skip, "跳过测试版说明。", new GUILayoutOption[0]);
+            Main.settings.unBuildLimit = GUILayout.Toggle(Main.settings.unBuildLimit, "取消新建建筑限制", new GUILayoutOption[0]);
+            Main.settings.unlockAll = GUILayout.Toggle(Main.settings.unlockAll, "空地全开", new GUILayoutOption[0]);
             GUILayout.Label("人物可生育孩子总数量", new GUILayoutOption[0]);
             Main.settings.npcUpLimit = GUILayout.Toggle(Main.settings.npcUpLimit, "对NPC生效", new GUILayoutOption[0]);
             Main.settings.numChild = GUILayout.SelectionGrid(Main.settings.numChild, new string[]
@@ -70,21 +77,21 @@ namespace HappyLife
             GUILayout.Label("建筑每次升级", new GUILayoutOption[0]);
             Main.settings.numBuild = GUILayout.SelectionGrid(Main.settings.numBuild, new string[]
             {
-        "1级",
+        "正常",
         "2级",
         "3级",
         "4级",
         "5级"
             }, 5, new GUILayoutOption[0]);
-            GUILayout.Label("好感增加", new GUILayoutOption[0]);
+            GUILayout.Label("好感增加时倍率", new GUILayoutOption[0]);
             Main.settings.numFavor = GUILayout.SelectionGrid(Main.settings.numFavor, new string[]
             {
-        "1倍",
+        "正常",
         "2倍",
         "3倍",
         "4倍",
         "5倍"
-            }, 5, new GUILayoutOption[0]);         
+            }, 5, new GUILayoutOption[0]);
             GUILayout.EndVertical();
         }
 
@@ -115,10 +122,10 @@ namespace HappyLife
             {
                 if (!DateFile.instance.HaveLifeDate(motherId, 901) && UnityEngine.Random.Range(0, 15000) < int.Parse(DateFile.instance.GetActorDate(fatherId, 24, true)) * int.Parse(DateFile.instance.GetActorDate(motherId, 24, true)))
                 {
-                    
+
                     int num2 = DateFile.instance.MianActorID();
                     bool flag = fatherId == num2 || motherId == num2;
-                    int num3 = (!flag) ? Main.settings.npcUpLimit || Main.settings.numChild == 0 ? 50 : 50 * Main.settings.numChild : 25;               
+                    int num3 = (!flag) ? Main.settings.npcUpLimit || Main.settings.numChild == 0 ? 50 : 50 * Main.settings.numChild : 25;
                     num -= DateFile.instance.GetActorSocial(fatherId, 310, false).Count * num3;
                     num -= DateFile.instance.GetActorSocial(motherId, 310, false).Count * num3;
                     if (UnityEngine.Random.Range(0, num4) < num)
@@ -168,8 +175,8 @@ namespace HappyLife
             //Main.Logger.Log("建筑升级倍率：" + Main.settings.numBuild+1);
             if (dateIndex == 1)
             {
-               
-                if ( dateValue != 1)
+
+                if (dateValue != 1)
                 {
                     dateValue += Main.settings.numBuild;
                     int max = int.Parse(DateFile.instance.basehomePlaceDate[DateFile.instance.homeBuildingsDate[partId][placeId][buildingIndex][0]][1]);
@@ -194,9 +201,9 @@ namespace HappyLife
                 return;
             }
             //Main.Logger.Log("好感倍率：" + Main.settings.numFavor+1);
-            if (value > 0&&Main.settings.numFavor>0)
+            if (value > 0 && Main.settings.numFavor > 0)
             {
-                value *= (Main.settings.numFavor+1);
+                value *= (Main.settings.numFavor + 1);
             }
         }
     }
@@ -214,5 +221,82 @@ namespace HappyLife
         }
     }
 
+
+    [HarmonyPatch(typeof(HomeSystem), "GetBuildingNeighbor")]
+    public static class HomeSystem_GetBuildingNeighbor_Patch
+    {
+        static void Postfix(HomeSystem __instance, ref int partId, ref int placeId, ref int buildingIndex, int ___buildingId, ref int[] __result)
+        {
+            if (!Main.enabled || !Main.settings.unBuildLimit)
+            {
+                return;
+            }
+            Checkchange(partId, placeId);
+            List<int> list = __result.ToList();
+            if (___buildingId != 0) //物品建筑不为0
+            {
+                string[] needBuild = DateFile.instance.basehomePlaceDate[___buildingId][5].Split(new char[] { '|' }); //需要建筑列表
+                for (int i = 0; i < needBuild.Length; i++)
+                {
+                    int buildId = int.Parse(needBuild[i]);
+                    foreach (int key in dictionary.Keys)//枚举当前地图列表
+                    {                     
+                        if (buildId == dictionary[key][0])
+                        {
+                            list.Add(key);
+                            break;
+                        }
+                    }
+
+                }
+            }
+            if (DateFile.instance.homeBuildingsDate[partId][placeId][buildingIndex][0] != 0 || Main.settings.unlockAll) //判断当前建筑是否为空地
+            {             
+                __result = list.Union(addList).ToArray(); //合并列表
+                 
+            }
+            else
+            {
+                __result = list.ToArray();
+            }
+            
+
+        }
+
+        static void Checkchange(int partId, int placeId)
+        {
+            
+            if (part != partId || place != placeId)
+            {
+               
+                addList.Clear();
+                dictionary = DateFile.instance.homeBuildingsDate[partId][placeId];
+                part = partId;
+                place = placeId;
+
+                foreach (int key in dictionary.Keys)
+                {
+                    if (dictionary[key][0] == 0) {
+                        continue;
+                    }
+                    if (dictionary[key][0] == 1001) //设置建筑永远靠近太吾村
+                    {
+                        addList.Add(key);
+                        continue;
+                    }
+                    Dictionary<int, string> baseHome = DateFile.instance.basehomePlaceDate[dictionary[key][0]];
+                    //需要编号66,67,68,79,80
+                    if (int.Parse(baseHome[66]) != 0 || int.Parse(baseHome[67]) != 0 || int.Parse(baseHome[68]) != 0 || int.Parse(baseHome[79]) != 0 || int.Parse(baseHome[80]) != 0)
+                    {
+                        addList.Add(key);
+                    }
+                }
+            }
+        }
+        private static int part = -1;
+        private static int place = -1;
+        private static Dictionary<int, int[]> dictionary;
+        private static List<int> addList = new List<int>();
+    }
 }
 
