@@ -23,7 +23,7 @@ namespace HappyLife
         public int numFavor = 0;
         public bool skip = true;
         public bool unBuildLimit = true;
-        public bool unlockAll = true;
+        public bool unlockAll = false;
 
 
     }
@@ -62,7 +62,7 @@ namespace HappyLife
         {
             GUILayout.BeginVertical("Box", new GUILayoutOption[0]);
             Main.settings.skip = GUILayout.Toggle(Main.settings.skip, "跳过测试版说明。", new GUILayoutOption[0]);
-            Main.settings.unBuildLimit = GUILayout.Toggle(Main.settings.unBuildLimit, "取消新建建筑限制", new GUILayoutOption[0]);
+            Main.settings.unBuildLimit = GUILayout.Toggle(Main.settings.unBuildLimit, "取消新建建筑相邻限制", new GUILayoutOption[0]);
             Main.settings.unlockAll = GUILayout.Toggle(Main.settings.unlockAll, "空地全开", new GUILayoutOption[0]);
             GUILayout.Label("人物可生育孩子总数量", new GUILayoutOption[0]);
             Main.settings.npcUpLimit = GUILayout.Toggle(Main.settings.npcUpLimit, "对NPC生效", new GUILayoutOption[0]);
@@ -225,50 +225,71 @@ namespace HappyLife
     [HarmonyPatch(typeof(HomeSystem), "GetBuildingNeighbor")]
     public static class HomeSystem_GetBuildingNeighbor_Patch
     {
-        static void Postfix(HomeSystem __instance, ref int partId, ref int placeId, ref int buildingIndex, int ___buildingId, ref int[] __result)
+        static void Postfix(HomeSystem __instance, ref int partId, ref int placeId, ref int buildingIndex,int ___buildingId, ref int[] __result)
         {
             if (!Main.enabled || !Main.settings.unBuildLimit)
             {
                 return;
             }
+            int[] buildData = DateFile.instance.homeBuildingsDate[partId][placeId][buildingIndex];
+            int exnum = int.Parse(DateFile.instance.basehomePlaceDate[buildData[0]][42]);
+            if (exnum != 0)
+            {
+                return;
+            }
             Checkchange(partId, placeId);
-            List<int> list = __result.ToList();
+            List<int> list = __result.ToList();           
             if (___buildingId != 0) //物品建筑不为0
             {
-                string[] needBuild = DateFile.instance.basehomePlaceDate[___buildingId][5].Split(new char[] { '|' }); //需要建筑列表
-                for (int i = 0; i < needBuild.Length; i++)
+                bool buildon = false;
+                int length = __result.Length;
+                for (int i = 0; i < length; i++)
                 {
-                    int buildId = int.Parse(needBuild[i]);
-                    foreach (int key in dictionary.Keys)//枚举当前地图列表
-                    {                     
-                        if (buildId == dictionary[key][0])
+                    if (DateFile.instance.homeBuildingsDate[partId][placeId].ContainsKey(__result[i]))
+                    {
+                        //Main.Logger.Log(DateFile.instance.homeBuildingsDate[partId][placeId][__result[i]][0].ToString());
+                        if (DateFile.instance.homeBuildingsDate[partId][placeId][__result[i]][0] > 200 && DateFile.instance.homeBuildingsDate[partId][placeId][__result[i]][0] < 20000)
                         {
-                            list.Add(key);
+                            buildon = true;
                             break;
                         }
                     }
-
                 }
-            }
-            if (DateFile.instance.homeBuildingsDate[partId][placeId][buildingIndex][0] != 0 || Main.settings.unlockAll) //判断当前建筑是否为空地
-            {             
-                __result = list.Union(addList).ToArray(); //合并列表
-                 
-            }
-            else
+                if (buildon || Main.settings.unlockAll || length<9)
+                {
+                    string[] needBuild = DateFile.instance.basehomePlaceDate[___buildingId][5].Split(new char[] { '|' }); //需要建筑列表
+                    for (int i = 0; i < needBuild.Length; i++)
+                    {
+                        int buildId = int.Parse(needBuild[i]);
+                        foreach (int key in dictionary.Keys)//枚举当前地图列表
+                        {
+                            if (buildId == dictionary[key][0])
+                            {                              
+                                list.Add(key);  
+                                break;
+                            }
+                        }
+
+                    }
+                }
+
+            }                                   
+            if (buildData[0] != 0 || Main.settings.unlockAll) //判断当前建筑是否为空地且不是可扩张地块
             {
-                __result = list.ToArray();
+
+                list = list.Union(addList).ToList(); //合并列表
+
             }
-            
+            __result = list.ToArray();
 
         }
 
         static void Checkchange(int partId, int placeId)
         {
-            
+
             if (part != partId || place != placeId)
             {
-               
+
                 addList.Clear();
                 dictionary = DateFile.instance.homeBuildingsDate[partId][placeId];
                 part = partId;
@@ -276,7 +297,8 @@ namespace HappyLife
 
                 foreach (int key in dictionary.Keys)
                 {
-                    if (dictionary[key][0] == 0) {
+                    if (dictionary[key][0] == 0)
+                    {
                         continue;
                     }
                     if (dictionary[key][0] == 1001) //设置建筑永远靠近太吾村
@@ -293,10 +315,12 @@ namespace HappyLife
                 }
             }
         }
+
         private static int part = -1;
         private static int place = -1;
         private static Dictionary<int, int[]> dictionary;
         private static List<int> addList = new List<int>();
     }
+
 }
 
