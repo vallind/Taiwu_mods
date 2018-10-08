@@ -24,6 +24,7 @@ namespace HappyLife
         public bool skip = true;
         public bool unBuildLimit = true;
         public bool unlockAll = false;
+        public bool simpleMake = true;
 
 
     }
@@ -35,11 +36,14 @@ namespace HappyLife
         public static bool enabled;
         public static Settings settings;
         public static UnityModManager.ModEntry.ModLogger Logger;
+        
 
         public static bool Load(UnityModManager.ModEntry modEntry)
         {
             Logger = modEntry.Logger;
             settings = Settings.Load<Settings>(modEntry);
+            
+            
             var harmony = HarmonyInstance.Create(modEntry.Info.Id);
             harmony.PatchAll(Assembly.GetExecutingAssembly());
             modEntry.OnToggle = OnToggle;
@@ -64,6 +68,7 @@ namespace HappyLife
             Main.settings.skip = GUILayout.Toggle(Main.settings.skip, "跳过测试版说明。", new GUILayoutOption[0]);
             Main.settings.unBuildLimit = GUILayout.Toggle(Main.settings.unBuildLimit, "取消新建建筑相邻限制", new GUILayoutOption[0]);
             Main.settings.unlockAll = GUILayout.Toggle(Main.settings.unlockAll, "空地全开", new GUILayoutOption[0]);
+            Main.settings.simpleMake = GUILayout.Toggle(Main.settings.simpleMake, "简化制造系统操作", new GUILayoutOption[0]);
             GUILayout.Label("人物可生育孩子总数量", new GUILayoutOption[0]);
             Main.settings.npcUpLimit = GUILayout.Toggle(Main.settings.npcUpLimit, "对NPC生效", new GUILayoutOption[0]);
             Main.settings.numChild = GUILayout.SelectionGrid(Main.settings.numChild, new string[]
@@ -106,17 +111,12 @@ namespace HappyLife
     {
         static bool Prefix(PeopleLifeAI __instance, ref int fatherId, ref int motherId, ref int setFather, ref int setMother)
         {
-            if (!Main.enabled)
+            if (!Main.enabled || Main.settings.numChild==1)
             {
                 return true;
             }
             //Main.Logger.Log("生孩子倍率：" + Main.settings.numChild);
-            int num = 50;
-            if (Main.settings.numChild != 0)
-            {
-                num = 100 * Main.settings.numChild;
-            }
-
+            int num = Main.settings.numChild == 0?50:100 * Main.settings.numChild;
             int num4 = num;
             if (int.Parse(DateFile.instance.GetActorDate(motherId, 14, false)) == 2)
             {
@@ -168,7 +168,7 @@ namespace HappyLife
         static void Prefix(DateFile __instance, ref int partId, ref int placeId, ref int buildingIndex, ref int dateIndex, ref int dateValue)
         {
 
-            if (!Main.enabled)
+            if (!Main.enabled || Main.settings.numBuild == 0)
             {
                 return;
             }
@@ -196,12 +196,12 @@ namespace HappyLife
     {
         static void Prefix(DateFile __instance, ref int value)
         {
-            if (!Main.enabled)
+            if (!Main.enabled || Main.settings.numFavor==0)
             {
                 return;
             }
             //Main.Logger.Log("好感倍率：" + Main.settings.numFavor+1);
-            if (value > 0 && Main.settings.numFavor > 0)
+            if (value > 0)
             {
                 value *= (Main.settings.numFavor + 1);
             }
@@ -225,7 +225,7 @@ namespace HappyLife
     [HarmonyPatch(typeof(HomeSystem), "GetBuildingNeighbor")]
     public static class HomeSystem_GetBuildingNeighbor_Patch
     {
-        static void Postfix(HomeSystem __instance, ref int partId, ref int placeId, ref int buildingIndex,int ___buildingId, ref int[] __result)
+        static void Postfix(HomeSystem __instance, ref int partId, ref int placeId, ref int buildingIndex, int ___buildingId, ref int[] __result)
         {
             if (!Main.enabled || !Main.settings.unBuildLimit)
             {
@@ -238,7 +238,7 @@ namespace HappyLife
                 return;
             }
             Checkchange(partId, placeId);
-            List<int> list = __result.ToList();           
+            List<int> list = __result.ToList();
             if (___buildingId != 0) //物品建筑不为0
             {
                 bool buildon = false;
@@ -255,7 +255,7 @@ namespace HappyLife
                         }
                     }
                 }
-                if (buildon || Main.settings.unlockAll || length<9)
+                if (buildon || Main.settings.unlockAll || length < 5)
                 {
                     string[] needBuild = DateFile.instance.basehomePlaceDate[___buildingId][5].Split(new char[] { '|' }); //需要建筑列表
                     for (int i = 0; i < needBuild.Length; i++)
@@ -264,8 +264,8 @@ namespace HappyLife
                         foreach (int key in dictionary.Keys)//枚举当前地图列表
                         {
                             if (buildId == dictionary[key][0])
-                            {                              
-                                list.Add(key);  
+                            {
+                                list.Add(key);
                                 break;
                             }
                         }
@@ -273,7 +273,7 @@ namespace HappyLife
                     }
                 }
 
-            }                                   
+            }
             if (buildData[0] != 0 || Main.settings.unlockAll) //判断当前建筑是否为空地且不是可扩张地块
             {
 
@@ -322,5 +322,40 @@ namespace HappyLife
         private static List<int> addList = new List<int>();
     }
 
+    [HarmonyPatch(typeof(MakeSystem), "SetMakeWindow")]
+    public static class MakeSystem_SetMakeWindow_Patch
+    {
+        static bool Prefix(MakeSystem __instance, ref int typ, ref int ___makeTyp, ref int ___baseMakeTyp, ref int ___mianItemId, ref int ___secondItemId, ref int[] ___thirdItemId)
+        {
+            if (!Main.enabled || !Main.settings.simpleMake)
+            {
+                return true;
+            }
+            //Main.Logger.Log("typ:" + typ);
+            //Main.Logger.Log("___baseMakeTyp" + ___baseMakeTyp);
+            if (makeType != ___baseMakeTyp)
+            {
+                ___makeTyp = typ;
+                makeType = ___baseMakeTyp;
+                ___mianItemId = 0;
+                ___secondItemId = 0;
+                ___thirdItemId[0] = 0;
+                ___thirdItemId[1] = 0;
+                ___thirdItemId[2] = 0;
+                MakeSystem_RemoveAllUseResourceLevel.Invoke(MakeSystem.instance, new object[] { });
+                __instance.UpdateMakeWindow();
+                return false;
+            }
+            ___makeTyp = typ;
+            ___secondItemId = 0;
+            ___thirdItemId[0] = 0;
+            ___thirdItemId[1] = 0;
+            ___thirdItemId[2] = 0;
+            __instance.UpdateMakeWindow();
+            return false;
+        }
+        private static int makeType = -111;
+        private static MethodInfo MakeSystem_RemoveAllUseResourceLevel = typeof(MakeSystem).GetMethod("RemoveAllUseResourceLevel", BindingFlags.NonPublic | BindingFlags.Instance);
+    }
 }
 
