@@ -21,10 +21,11 @@ namespace HappyLife
         public bool npcUpLimit = false;
         public int numBuild = 0;
         public int numFavor = 0;
-        public bool skip = true;
-        public bool unBuildLimit = true;
+        public bool skip = false;
+        public bool unBuildLimit = false;
         public bool unlockAll = false;
-        public bool simpleMake = true;
+        public bool simpleMake = false;
+        public bool forcechange = false;
 
 
     }
@@ -69,6 +70,7 @@ namespace HappyLife
             Main.settings.unBuildLimit = GUILayout.Toggle(Main.settings.unBuildLimit, "取消新建建筑相邻限制", new GUILayoutOption[0]);
             Main.settings.unlockAll = GUILayout.Toggle(Main.settings.unlockAll, "空地全开", new GUILayoutOption[0]);
             Main.settings.simpleMake = GUILayout.Toggle(Main.settings.simpleMake, "简化制造系统操作", new GUILayoutOption[0]);
+            Main.settings.forcechange = GUILayout.Toggle(Main.settings.forcechange, "强制更换村民工作地点", new GUILayoutOption[0]);
             GUILayout.Label("人物可生育孩子总数量", new GUILayoutOption[0]);
             Main.settings.npcUpLimit = GUILayout.Toggle(Main.settings.npcUpLimit, "对NPC生效", new GUILayoutOption[0]);
             Main.settings.numChild = GUILayout.SelectionGrid(Main.settings.numChild, new string[]
@@ -255,7 +257,7 @@ namespace HappyLife
                         }
                     }
                 }
-                if (buildon || Main.settings.unlockAll || length < 5)
+                if (buildon || Main.settings.unlockAll || length == 4)
                 {
                     string[] needBuild = DateFile.instance.basehomePlaceDate[___buildingId][5].Split(new char[] { '|' }); //需要建筑列表
                     for (int i = 0; i < needBuild.Length; i++)
@@ -335,16 +337,8 @@ namespace HappyLife
             //Main.Logger.Log("___baseMakeTyp" + ___baseMakeTyp);
             if (makeType != ___baseMakeTyp)
             {
-                ___makeTyp = typ;
                 makeType = ___baseMakeTyp;
-                ___mianItemId = 0;
-                ___secondItemId = 0;
-                ___thirdItemId[0] = 0;
-                ___thirdItemId[1] = 0;
-                ___thirdItemId[2] = 0;
-                MakeSystem_RemoveAllUseResourceLevel.Invoke(MakeSystem.instance, new object[] { });
-                __instance.UpdateMakeWindow();
-                return false;
+                return true;
             }
             ___makeTyp = typ;
             ___secondItemId = 0;
@@ -355,7 +349,48 @@ namespace HappyLife
             return false;
         }
         private static int makeType = -111;
-        private static MethodInfo MakeSystem_RemoveAllUseResourceLevel = typeof(MakeSystem).GetMethod("RemoveAllUseResourceLevel", BindingFlags.NonPublic | BindingFlags.Instance);
+        //private static MethodInfo MakeSystem_RemoveAllUseResourceLevel = typeof(MakeSystem).GetMethod("RemoveAllUseResourceLevel", BindingFlags.NonPublic | BindingFlags.Instance);
+    }
+
+    [HarmonyPatch(typeof(HomeSystem), "SetWorkingActor")]
+    public static class HomeSystem_SetWorkingActor_Patch
+    {
+        static bool Prefix(HomeSystem __instance,ref int key,ref int ___workingActorId,ref Button ___canChanageActorButton)
+        {
+            if (!Main.enabled || !Main.settings.forcechange)
+            {
+                return true;
+            }
+            ___workingActorId = key;
+            ___canChanageActorButton.interactable = true;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(HomeSystem), "ChanageWorkingAcotr")]
+    public static class HomeSystem_ChanageWorkingAcotr_Patch
+    {
+        static void Prefix(HomeSystem __instance,int ___workingActorId)
+        {
+            if (!Main.enabled || !Main.settings.forcechange)
+            {
+                return;
+            }
+            var array = DateFile.instance.ActorIsWorking(___workingActorId);
+            if (array != null)
+            {
+                var dic=DateFile.instance.actorsWorkingDate[array[0]][array[1]];
+                foreach (int key in dic.Keys)
+                {
+                    if (dic[key]== ___workingActorId)
+                    {
+                        __instance.RemoveWorkingActor(array[0], array[1], key);
+                        break;
+                    }
+                } 
+            }
+        }
+
     }
 }
 
